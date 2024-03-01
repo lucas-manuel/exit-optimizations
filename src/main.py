@@ -1,17 +1,15 @@
-from simulation import MonteCarloSimulation
+from simulation import TokenSaleSimulation
 
 def main():
-    # Create an instance of the MonteCarloSimulation class
-    simulation = MonteCarloSimulation()
+    prices = [10, 20, 30]
+    probabilities = [1.0, 0.8, 0.3]  # Inverse probabilities
 
-    # Specify the number of simulations to run
-    num_simulations = 1000  # Example number
+    # Instantiate the simulation class
+    simulation = TokenSaleSimulation(prices, probabilities, 0, 0)
 
-    # Run the simulation
-    results = simulation.run_simulation(num_simulations)
-
-    # Process the results (This part depends on how you've implemented your simulation)
-    print(results)
+    # Call the simulate_sales method
+    price_index = simulation.determine_max_price()
+    print(f"The determined max price is ${simulation.prices[price_index]}")
 
 if __name__ == "__main__":
     main()
