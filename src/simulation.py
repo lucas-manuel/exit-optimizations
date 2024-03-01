@@ -1,43 +1,35 @@
 import numpy as np
+from scipy.stats import trim_mean
 
 class TokenSaleSimulation:
     def __init__(
             self,
+            cost_basis,
             prices,
             probabilities,
             total_tokens,
             initial_sell_percentages,
             num_iterations,
-            capital_gains_rate
+            capital_gains_rate,
+            adjustment_rate_factor,
+            adjustment_number_factor,
+            num_simulations
         ):
-        """
-        Initialize the simulation parameters.
 
-        Parameters:
-        - prices: List[float], predetermined selling prices.
-        - probabilities: List[float], probability of each price being the selling point.
-        - total_tokens: int, total number of tokens available for sale.
-        - initial_percentages: List[float], initial distribution percentages of tokens to sell at each price.
-        """
-        self.prices             = prices
-        self.probabilities      = probabilities
-        self.total_tokens       = total_tokens
-        self.percentages        = initial_sell_percentages
-        self.num_iterations     = num_iterations
-        self.capital_gains_rate = capital_gains_rate
+        self.cost_basis               = cost_basis
+        self.prices                   = prices
+        self.probabilities            = probabilities
+        self.total_tokens             = total_tokens
+        self.percentages              = initial_sell_percentages
+        self.num_iterations           = num_iterations
+        self.capital_gains_rate       = capital_gains_rate
+        self.adjustment_rate_factor   = adjustment_rate_factor
+        self.adjustment_number_factor = adjustment_number_factor
+        self.num_simulations          = num_simulations
 
     def run_simulation(self):
-        """
-        Run the simulation to optimize the distribution of selling percentages.
-
-        Parameters:
-        - num_iterations: int, the number of iterations to perform for optimization.
-
-        Returns:
-        - optimized_percentages: List[float], optimized percentages for selling at each price point.
-        """
-        optimized_percentages = self.optimize_percentages(self.num_iterations)
-        return optimized_percentages
+        optimized_percentages, best_average_net_gain = self.optimize_percentages(self.num_iterations)
+        return optimized_percentages, best_average_net_gain
 
     def determine_randomized_max_price(self):
         random_prob = np.random.rand()  # Generate a random number between 0 and 1
@@ -50,7 +42,9 @@ class TokenSaleSimulation:
 
     def optimize_percentages(self, num_iterations):
         best_percentages = self.percentages.copy()
-        best_average_net_gain = -np.inf
+        best_standard_deviation = np.inf
+
+        best_net_gain = -np.inf
 
         for _ in range(num_iterations):
             # Create a new set of percentages by making a small adjustment
@@ -59,76 +53,135 @@ class TokenSaleSimulation:
             # Temporarily update the percentages to the new percentages
             self.percentages = new_percentages
 
+            simulation_results = self.run_all_simulations()
+
             # Evaluate the new percentages by running a simulation
-            average_net_gain = self.simulate_average_net_gain()
+            mean_net_gain = self.calculate_mean(simulation_results)
+            median_net_gain = self.calculate_median(simulation_results)
+            trimmed_mean_net_gain = self.calculate_trimmed_mean(simulation_results, 0.3)
+            standard_deviation = self.calculate_standard_deviation(simulation_results)
+
+            # # If the new percentages result in a better average net gain, keep them
+            # if mean_net_gain > best_net_gain:
+            #     best_percentages = new_percentages.copy()
+            #     best_net_gain = mean_net_gain
+            #     print(f"New best net gain: ${best_net_gain:,.2f} with percentages {[f'{p * 100:.2f}%' for p in best_percentages]}")
+            #     print(f"Variance: {variance}")
+            # else:
+            #     # Revert to the best known percentages if no improvement
+            #     self.percentages = best_percentages
+
+            # # If the new percentages result in a better average net gain, keep them
+            # if median_net_gain > best_net_gain:
+            #     best_percentages = new_percentages.copy()
+            #     best_net_gain = median_net_gain
+            #     print(f"New best net gain: ${best_net_gain:,.2f} with percentages {[f'{p * 100:.2f}%' for p in best_percentages]}")
+            # else:
+            #     # Revert to the best known percentages if no improvement
+            #     self.percentages = best_percentages
 
             # If the new percentages result in a better average net gain, keep them
-            if average_net_gain > best_average_net_gain:
+            if trimmed_mean_net_gain > best_net_gain and (standard_deviation < best_standard_deviation or standard_deviation < 400_000):
                 best_percentages = new_percentages.copy()
-                best_average_net_gain = average_net_gain
-                print(f"New best net gain: {best_average_net_gain} with percentages {best_percentages}")
+                best_net_gain = trimmed_mean_net_gain
+                best_standard_deviation = standard_deviation
+                print(f"New best net gain: ${best_net_gain:,.2f} with percentages {[f'{p * 100:.2f}%' for p in best_percentages]}")
+                print(f"Standard deviation: ${best_standard_deviation:,.2f}")
+                print()
             else:
                 # Revert to the best known percentages if no improvement
                 self.percentages = best_percentages
 
         # After optimization, set the percentages to the best found
         self.percentages = best_percentages
-        return best_percentages
+        return best_percentages, best_net_gain
 
     def adjust_percentages(self, percentages):
-        """
-        Adjust the percentages slightly to explore the solution space.
-
-        Parameters:
-        - percentages: List[float], the current distribution percentages of tokens to sell.
-
-        Returns:
-        - List[float], new adjusted percentages.
-        """
         new_percentages = percentages.copy()
-        # Example adjustment: randomly select two indices and transfer a small percentage from one to the other
-        idx_from, idx_to = np.random.choice(len(new_percentages), 2, replace=False)
-        adjustment = np.random.rand() * 0.01  # Up to 1% adjustment for simplicity
-        if new_percentages[idx_from] > adjustment:  # Ensure we don't go negative
-            new_percentages[idx_from] -= adjustment
-            new_percentages[idx_to]   += adjustment
+        # More aggressive adjustment: modify a larger chunk of the percentages
+        num_adjustments = int(len(new_percentages) * self.adjustment_number_factor * np.random.rand())
+        # print(f"num_adjustments {num_adjustments}")
+
+        for _ in range(num_adjustments):
+            idx_from, idx_to = np.random.choice(len(new_percentages), 2, replace=False)
+            adjustment = np.random.rand() * self.adjustment_rate_factor  # Larger adjustment
+
+            # More aggressive checking to avoid negative percentages
+            if new_percentages[idx_from] - adjustment > 0:
+                new_percentages[idx_from] -= adjustment
+                new_percentages[idx_to] += adjustment
+            else:
+                # If we can't make the desired adjustment without going negative, try a smaller adjustment
+                smaller_adjustment = new_percentages[idx_from] * np.random.rand()
+                new_percentages[idx_from] -= smaller_adjustment
+                new_percentages[idx_to] += smaller_adjustment
+
+        # Ensure the percentages still sum to 1 (or 100%) after adjustments
+        total_percentage = sum(new_percentages)
+        new_percentages = [p / total_percentage for p in new_percentages]
+
         return new_percentages
 
-    def simulate_average_net_gain(self):
-        """
-        A helper method to calculate the average net gain for the current percentages
-        by running multiple simulations and averaging the result.
+    def run_all_simulations(self):
+        results = [self.simulate_once() for _ in range(self.num_simulations)]
+        return results
 
-        Returns:
-        - float, the average average net gain from the simulations.
-        """
-        num_simulations = 100000  # Number of simulations to run for averaging
-        average_net_gain = sum(self.simulate_once() for _ in range(num_simulations)) / num_simulations
-        # print(f"Average net gain: {average_net_gain}")
+    def calculate_trimmed_mean(self, values, proportion_to_trim):
+        return trim_mean(values, proportion_to_trim)
+
+    def calculate_mean(self, results):
+        if not results:
+            return 0
+        return sum(results) / len(results)
+
+    def calculate_median(self, results):
+        if not results:
+            return 0
+        sorted_results = sorted(results)
+        n = len(sorted_results)
+        midpoint = n // 2
+        if n % 2 == 1:
+            # If odd, return the middle value
+            return sorted_results[midpoint]
+        else:
+            # If even, return the average of the two middle values
+            return (sorted_results[midpoint - 1] + sorted_results[midpoint]) / 2.0
+
+    def calculate_standard_deviation(self, results):
+        if not results:
+            return 0
+        # print(f"Results: {results}")
+        return np.sqrt(np.var(results, ddof=1))
+
+    def simulate_average_net_gain(self):
+        average_net_gain = sum(self.simulate_once() for _ in range(self.num_simulations)) / self.num_simulations
         return average_net_gain
 
     def simulate_once(self):
-        """
-        Run a single simulation of selling tokens based on the current percentages.
-
-        Returns:
-        - total_net_gain: float, the total net gain from this simulation.
-        """
-        # Placeholder for a single simulation run
         price_index = self.determine_randomized_max_price()
 
-        # Initialize total net gain
+        # print(f"Price index: {price_index}, Price: {self.prices[price_index]}")
+
         total_net_gain = 0
 
         # Loop through each price point up to and including the price_index
         for i in range(price_index + 1):
             # Calculate the gain for this price point
             # Assuming you have an array called `self.net_gains` that corresponds to net gains at each price point
-            gain_at_price = self.total_tokens * self.percentages[i] * self.prices[i] * (1 - self.capital_gains_rate)
+
+            gain_at_price = self.total_tokens * self.percentages[i] * (self.prices[i] - self.cost_basis) * (1 - self.capital_gains_rate)
 
             # print(f"Gain at price {self.prices[i]}: {gain_at_price}")
             # Add the gain from this price point to the total net gain
             total_net_gain += gain_at_price
+            # print()
             # print(f"Total net gain:   {total_net_gain}")
+
+            # print(f"self.total_tokens {self.total_tokens}")
+            # print(f"self.percentages[i] {self.percentages[i]}")
+            # print(f"self.prices[i] {self.prices[i]}")
+            # print(f"self.self.cost_basis {self.cost_basis}")
+            # print(f"self.capital_gains_rate {self.capital_gains_rate}")
+            # print(f"self.gain_at_price {gain_at_price}")
 
         return total_net_gain
