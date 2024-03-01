@@ -1,7 +1,14 @@
 import numpy as np
 
 class TokenSaleSimulation:
-    def __init__(self, prices, probabilities, total_tokens, initial_percentages):
+    def __init__(
+            self,
+            prices,
+            probabilities,
+            total_tokens,
+            initial_sell_percentages,
+            capital_gains_rate=0.25
+        ):
         """
         Initialize the simulation parameters.
 
@@ -11,10 +18,11 @@ class TokenSaleSimulation:
         - total_tokens: int, total number of tokens available for sale.
         - initial_percentages: List[float], initial distribution percentages of tokens to sell at each price.
         """
-        self.prices = prices
-        self.probabilities = probabilities
-        self.total_tokens = total_tokens
-        self.percentages = initial_percentages
+        self.prices             = prices
+        self.probabilities      = probabilities
+        self.total_tokens       = total_tokens
+        self.percentages        = initial_sell_percentages
+        self.capital_gains_rate = capital_gains_rate
 
     def run_simulation(self, num_iterations):
         """
@@ -64,6 +72,20 @@ class TokenSaleSimulation:
         - total_net_gain: float, the total net gain from this simulation.
         """
         # Placeholder for a single simulation run
-        price = determine
-        total_net_gain = 0  # Placeholder computation
+        price_index = self.determine_max_price()
+
+        # Initialize total net gain
+        total_net_gain = 0
+
+        # Loop through each price point up to and including the price_index
+        for i in range(price_index + 1):
+            # Calculate the gain for this price point
+            # Assuming you have an array called `self.net_gains` that corresponds to net gains at each price point
+            gain_at_price = self.total_tokens * self.percentages[i] * self.prices[i] * (1 - self.capital_gains_rate)
+
+            print(f"Gain at price {self.prices[i]}: {gain_at_price}")
+            # Add the gain from this price point to the total net gain
+            total_net_gain += gain_at_price
+            print(f"Total net gain:   {total_net_gain}")
+
         return total_net_gain
